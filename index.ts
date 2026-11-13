@@ -1,7 +1,7 @@
 import { Model, Plugin, Provider } from "@opencode/plugin"
 import { ID, PACKAGE, VibeModel } from "./src/model.js"
 import { Catalog } from "./src/protocol.js"
-import { run } from "./src/process.js"
+import { run, shutdown } from "./src/process.js"
 import { offered } from "./src/efforts.js"
 
 export default Plugin.define({
@@ -82,6 +82,7 @@ export default Plugin.define({
     await refresh()
     return async () => {
       abort.abort()
+      shutdown()
       await events
     }
   },
