@@ -20,7 +20,7 @@ async def main():
         emit(
             {
                 "type": "error",
-                "message": "This integration requires mistral-vibe 3.1.x. Install it with uv tool install mistral-vibe==3.1.0.",
+                "message": "This integration requires mistral-vibe 3.1.x. Install it with uv tool install mistral-vibe==3.1.3.",
             }
         )
         return
@@ -41,29 +41,60 @@ async def main():
     # belong to OpenCode. No Vibe session or agent manager is constructed.
     orchestrator = await build_default_orchestrator()
     config = orchestrator.config
+    from vibe.core.config._defaults import DEFAULT_MISTRAL_API_BASE
     from vibe.core.config.layers.model_catalog import apply_model_catalog
     from vibe.core.model_catalog import (
-        fetch_and_cache_model_catalog,
         load_cached_model_catalog,
+        store_cached_model_catalog,
+    )
+    from vibe.core.model_catalog.client import fetch_model_catalog
+    from vibe.core.platform_auth._mistral import (
+        mistral_credentials,
+        resolve_principal,
     )
 
     # Building Vibe's config leaves its model-catalog layer empty. Populate it
     # exactly as the CLI does, without persisting an experimental flag in Vibe.
-    catalog = load_cached_model_catalog(config)
-    source = "cache" if catalog is not None else "local"
+    # Since 3.1.3 the on-disk catalog is keyed by the fetching account and
+    # endpoint, and fetching and storing are separate calls: resolve the
+    # credential once, pin it, and key the disk cache the way the CLI does.
+    mistral = mistral_credentials(config, None)
+    if mistral is not None:
+        api_base = mistral.provider.api_base.rstrip("/")
+        credential = mistral.credentials.pinned()
+        principal = await resolve_principal(mistral)
+        disk_key = (
+            None
+            if principal is None
+            else principal
+            if api_base == DEFAULT_MISTRAL_API_BASE
+            else f"{principal}@{api_base}"
+        )
+        record = load_cached_model_catalog(disk_key) if disk_key else None
+        catalog = record[0] if record is not None else None
+        source = "cache" if catalog is not None else "local"
+    else:
+        api_base = ""
+        credential = None
+        disk_key = None
+        catalog = None
+        source = "local"
     if request["type"] == "probe" or catalog is None:
+        latest = None
         try:
             async with asyncio.timeout(5):
-                latest = await fetch_and_cache_model_catalog(
-                    config.model_copy(
-                        update={"experimental_enable_model_catalog": True}
-                    )
+                latest = (
+                    await fetch_model_catalog(api_base, credential)
+                    if credential is not None
+                    else None
                 )
         except TimeoutError:
-            latest = None
+            pass
         if latest is not None:
             catalog = latest
             source = "remote"
+            if disk_key:
+                store_cached_model_catalog(disk_key, latest)
     if catalog is not None:
         await apply_model_catalog(orchestrator, catalog)
         config = orchestrator.config
