@@ -33,6 +33,7 @@ async def main():
     )
     from vibe.core.config.harness_files import init_harness_files_manager
     from vibe.utils.api_keys import resolve_api_key
+    from vibe.utils.http import with_user_agent
 
     if "--warm" in sys.argv:
         # Pre-warmed worker: load every heavy module now and wait for the request
@@ -231,7 +232,7 @@ async def main():
         backend="mistral",
         base_url=provider.api_base,
         max_tokens=request.get("maxTokens"),
-        extra_headers=provider.extra_headers,
+        extra_headers=with_user_agent(provider.extra_headers, provider.backend),
         emits_finish_reason=provider.emits_finish_reason,
         timeout_s=config.api_timeout,
         stream_idle_timeout_s=config.api_stream_idle_timeout or None,
