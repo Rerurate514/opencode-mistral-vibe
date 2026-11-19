@@ -36,7 +36,7 @@ export async function python() {
     if (line?.startsWith("#!/") && !line.includes(" ")) return line.slice(2)
   }
   throw new Error(
-    "Mistral Vibe's Python environment was not found. Install with uv tool install mistral-vibe==3.1.0, or set OPENCODE_VIBE_PYTHON.",
+    "Mistral Vibe's Python environment was not found. Install with uv tool install mistral-vibe==3.1.3, or set OPENCODE_VIBE_PYTHON.",
   )
 }
 
