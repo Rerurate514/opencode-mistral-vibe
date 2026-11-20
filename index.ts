@@ -1,8 +1,32 @@
 import { Model, Plugin, Provider } from "@opencode/plugin"
+import { Schema } from "effect"
 import { ID, PACKAGE, VibeModel } from "./src/model.js"
 import { Catalog } from "./src/protocol.js"
 import { run, shutdown } from "./src/process.js"
 import { offered } from "./src/efforts.js"
+
+// Official Mistral API prices in USD per 1M tokens (mistral.ai/pricing, models.dev provider "mistral").
+// Vibe bills the workspace balance / abo credits at exactly these rates, so OpenCode must
+// report real costs against the 255 EUR contingency instead of an empty cost list.
+const API_PRICES: Record<string, { input: number; output: number; cache: { read: number; write: number } }> = {
+  "mistral-large-4-0": { input: 0.7, output: 2.1, cache: { read: 0.07, write: 0 } },
+  "mistral-medium-latest": { input: 1.5, output: 7.5, cache: { read: 0.15, write: 0 } },
+  "zai-glm-5-3": { input: 1.4, output: 4.4, cache: { read: 0.14, write: 0 } },
+  "zai-glm-5-3-flash": { input: 0.15, output: 0.5, cache: { read: 0.03, write: 0 } },
+  "zai-glm-5-3-flash-vibe-free": { input: 0, output: 0, cache: { read: 0, write: 0 } },
+}
+
+const apiCost = (modelID: string): Model.Cost[] => {
+  const price = API_PRICES[modelID]
+  if (!price) return []
+  return [
+    Schema.decodeSync(Model.Cost)({
+      input: price.input,
+      output: price.output,
+      cache: { read: price.cache.read, write: price.cache.write },
+    }),
+  ]
+}
 
 export default Plugin.define({
   id: "opencode.provider.mistral-vibe",
@@ -23,8 +47,9 @@ export default Plugin.define({
           variants: model.efforts
             .filter((effort) => offered(model.id, effort))
             .map((effort) => ({ id: Model.VariantID.make(effort), settings: { effort } })),
-          // A Vibe key may be subscription-backed. Do not invent API charges.
-          cost: [],
+          // Vibe bills the workspace balance / abo credits at the official Mistral API rates,
+          // so report those instead of hiding costs.
+          cost: apiCost(model.id),
         })),
       })
     })
