@@ -14,6 +14,16 @@ def emit(value):
     print(json.dumps(value, separators=(",", ":")), flush=True)
 
 
+def sanitize(value):
+    if isinstance(value, str):
+        return "".join("\ufffd" if 0xD800 <= ord(char) <= 0xDFFF else char for char in value)
+    if isinstance(value, list):
+        return [sanitize(item) for item in value]
+    if isinstance(value, dict):
+        return {key: sanitize(item) for key, item in value.items()}
+    return value
+
+
 async def main():
     release = version("mistral-vibe")
     if not release.startswith("3.1."):
@@ -34,7 +44,7 @@ async def main():
     from vibe.core.config.harness_files import init_harness_files_manager
     from vibe.utils.api_keys import resolve_api_key
 
-    request = json.loads(sys.stdin.readline())
+    request = sanitize(json.loads(sys.stdin.buffer.readline().decode("utf-8", "replace")))
     init_harness_files_manager("user")
     load_dotenv_values()
     # Only user model/connection settings; project tools, hooks and instructions
@@ -161,7 +171,7 @@ async def main():
         provider=provider.name,
         backend="mistral",
         base_url=provider.api_base,
-        max_tokens=request.get("maxTokens"),
+        max_tokens=request.get("maxTokens") or None,
         extra_headers=provider.extra_headers,
         emits_finish_reason=provider.emits_finish_reason,
         timeout_s=config.api_timeout,
@@ -177,7 +187,7 @@ async def main():
         top_p=request.get("topP", model.top_p),
         thinking=profile_thinking(compiled),
         reasoning=compiled.profile.format.reasoning,
-        max_output_tokens=model.max_output_tokens,
+        max_output_tokens=model.max_output_tokens or None,
     )
 
     async def delta(value):
@@ -201,6 +211,9 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except Exception as error:  # noqa: BLE001 - sanitize every exception at the process boundary
+        import os, tempfile, traceback
+        with open(os.path.join(tempfile.gettempdir(), "vibe-bridge-error.log"), "a", encoding="utf-8") as handle:
+            handle.write(traceback.format_exc() + "\n")
         # Provider/config exceptions can contain headers, credentials and prompts.
         # Only the class and numeric HTTP status cross the process boundary.
         status = getattr(error, "status_code", None)
